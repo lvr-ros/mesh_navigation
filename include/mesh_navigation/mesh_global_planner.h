@@ -1,7 +1,7 @@
 #ifndef MESH_GLOBAL_PLANNER_H_
 #define MESH_GLOBAL_PLANNER_H_
 
-#include <path_planning/GraphHalfEdgeMesh.hpp>
+#include "path_planning/GraphHalfEdgeMesh.hpp"
 #include <nav_core/base_global_planner.h>
 #include <mesh_msgs/TriangleMeshStamped.h>
 #include <ros/ros.h>
