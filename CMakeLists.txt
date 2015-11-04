@@ -3,12 +3,13 @@ project(mesh_navigation)
 
 set(PACKAGE_DEPENDENCIES 
   roscpp
-  nav_msgs
-  nav_core
+  robot_navigation
   std_msgs
   pluginlib
   dynamic_reconfigure
   mesh_msgs
+  mesh_msgs_transform
+  tf
   lvr_ros
 )
 
@@ -51,8 +52,13 @@ set(LINK_LIBS
   ${lvr_LIBRARIES}
 )
 
-add_library(mesh_global_planner src/mesh_global_planner.cpp)
-add_library(mesh_local_planner src/mesh_local_planner.cpp)
+add_library(mesh_global_planner
+  src/mesh_global_planner.cpp
+  src/mesh_planner_plugins.cpp)
+ 
+add_library(mesh_local_planner
+  src/mesh_local_planner.cpp
+  src/mesh_planner_plugins.cpp)
 
 add_dependencies(mesh_global_planner ${PROJECT_NAME}_gencfg)
 add_dependencies(mesh_local_planner ${PROJECT_NAME}_gencfg)

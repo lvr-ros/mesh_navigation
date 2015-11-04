@@ -1,12 +1,12 @@
-<class_libraies>
-  <library path="lib/libglobal_mesh_planner">
-    <class name="mesh_navigation/MeshGlobalPlanner" type="mesh_navigation::MeshGlobalPlanner" base_class_type="nav_core::BaseGlobalPlanner">
+<class_libraries>
+  <library path="lib/libmesh_global_planner">
+    <class name="mesh_navigation/mesh_global_planner" type="mesh_navigation::MeshGlobalPlanner" base_class_type="robot_navigation::BaseGlobalPlanner">
       <description>This is a global planner plugin to plan on meshes</description>
     </class>
   </library>
 
-  <library path="lib/liblocal_mesh_planner">
-    <class name="mesh_navigation/MeshLocalPlanner" type="mesh_navigation::MeshLocalPlanner" base_class_type="nav_core::BaseLocalPlanner">
+  <library path="lib/libmesh_local_planner">
+    <class name="mesh_navigation/mesh_local_planner" type="mesh_navigation::MeshLocalPlanner" base_class_type="robot_navigation::BaseLocalPlanner">
       <description>This is a local planner plugin to plan on meshes</description>
     </class>
   </library>

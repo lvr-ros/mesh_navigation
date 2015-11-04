@@ -12,7 +12,7 @@ namespace mesh_navigation{
 
   MeshLocalPlanner::~MeshLocalPlanner(){}
 
-  bool MeshLocalPlanner::computeVelocityCommands(geometry_msgs::Twist& cmd_vel){
+  bool MeshLocalPlanner::computeVelocityCommands(const geometry_msgs::PoseStamped& robot_pose, geometry_msgs::Twist& cmd_vel){
 
     return false;
   }
@@ -27,16 +27,13 @@ namespace mesh_navigation{
 
   }
 
-  void MeshLocalPlanner::initialize(
-    std::string name,
-    tf::TransformListener* tf,
-    costmap_2d::Costmap2DROS* costmap_ros
-  ){
+  void MeshLocalPlanner::initialize(std::string name){
 
     ros::NodeHandle nh("~/" + name);
     ros::NodeHandle nh_g;
     sub = nh_g.subscribe("mesh_in", 1, &MeshLocalPlanner::meshCallback, this);
     pub = nh_g.advertise<mesh_msgs::TriangleMeshStamped>("planning_mesh", 1);
+	ROS_INFO("Mesh Local Planner initialized.");
 
   }
 

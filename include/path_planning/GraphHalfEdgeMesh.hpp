@@ -41,18 +41,57 @@
 #include <boost/graph/dijkstra_shortest_paths.hpp>
 #include <boost/graph/properties.hpp>
 
-// specify some types
 typedef float cost;
+
+// Vertex Costs
+struct vertex_costs_t {
+  typedef boost::vertex_property_tag kind;
+};
+
+// Edge distances - Euclidean vertex distances 
+struct edge_distance_t {
+  typedef boost::edge_property_tag kind;
+};
+
+// Roughness - Rough Terrain
+struct vertex_roughness_t {
+  typedef boost::vertex_property_tag kind;	
+};
+
+// Riskiness - Border Vertices etc.
+struct vertex_riskiness_t {
+  typedef boost::vertex_property_tag kind;
+};
+
+
+
+typedef boost::adjacency_list_traits<boost::listS, boost::vecS, boost::undirectedS>::vertex_descriptor vertex_descriptor;
 
 typedef boost::adjacency_list<
   boost::listS,
   boost::vecS,
-  boost::undirectedS,
-  boost::no_property,
-  boost::property<boost::edge_weight_t, cost> > Graph;
+  boost::undirectedS, 
+  boost::property<boost::vertex_distance_t, cost,
+  boost::property<boost::vertex_predecessor_t, vertex_descriptor,
+  boost::property<vertex_costs_t, cost,
+  boost::property<vertex_riskiness_t, cost> > > >,
+  boost::property<boost::edge_weight_t, cost,
+  boost::property<edge_distance_t, cost> >
+> Graph;
+
+typedef boost::graph_traits<Graph>::out_edge_iterator out_edge_iterator;
+typedef std::pair<out_edge_iterator, out_edge_iterator> out_edge_iterator_range;
+typedef boost::graph_traits < Graph >::adjacency_iterator adjacency_iterator;
 
 typedef boost::property_map<Graph, boost::edge_weight_t>::type WeightMap;
 typedef boost::property_map<Graph, boost::vertex_index_t>::type IndexMap;
+typedef boost::property_map<Graph, vertex_costs_t>::type VertexCostMap;
+typedef boost::property_map<Graph, boost::vertex_distance_t>::type VertexDistanceMap;
+typedef boost::property_map<Graph, boost::vertex_predecessor_t>::type PredecessorMap;
+typedef boost::property_map<Graph, vertex_riskiness_t>::type VertexRiskinessMap;
+typedef boost::property_map<Graph, edge_distance_t>::type EdgeDistanceMap;
+
+
 
 typedef Graph::vertex_descriptor GraphNode;
 typedef Graph::edge_descriptor GraphEdge;
@@ -62,6 +101,7 @@ typedef float CostType;
 namespace lvr
 {
 
+
 /**
  * @brief A implementation of a half edge triangle mesh.
  */
@@ -70,17 +110,28 @@ class GraphHalfEdgeMesh : public HalfEdgeMesh<VertexT, NormalT>
 {
 public:
 
-	GraphHalfEdgeMesh();
+  typedef boost::shared_ptr< ::lvr::GraphHalfEdgeMesh<VertexT, NormalT> > Ptr;
+  
+  GraphHalfEdgeMesh();
 
-	/**
-	 * @brief   Creates a HalfEdgeMesh from the given mesh buffer
-	 */
-	GraphHalfEdgeMesh( MeshBufferPtr model);
+  /**
+   * @brief   Creates a HalfEdgeMesh from the given mesh buffer
+   */
+  GraphHalfEdgeMesh( MeshBufferPtr model);
 
-	/**
-	 * @brief   Dtor.
-	 */
-	virtual ~GraphHalfEdgeMesh();
+  /**
+   * @brief   Dtor.
+   */
+  virtual ~GraphHalfEdgeMesh();
+  
+  struct InflationLevel{
+	CostType LETHAL;
+	CostType INSCRIBED;
+	CostType INSCRIBED_RADIUS;
+	CostType INSCRIBED_RADIUS_SQUARED;
+	CostType MAX_INFLATION_RADIUS;
+	CostType MAX_INFLATION_RADIUS_SQUARED;
+  };
 
   /*
 
@@ -101,14 +152,59 @@ public:
    */
   virtual void addTriangle(uint a, uint b, uint c);
 
+  void vertexGraphCalculateEdgeWeights();
+
+  void faceGraphCalculateEdgeWeights();
+
   bool vertexGraphAStar(uint start, uint goal, std::list<int>& path);
   
+  bool vertexGraphAStar(const VertexT& start, const VertexT& goal, std::vector<VertexT>& path, std::vector<NormalT>& path_normals);
+  
   bool faceGraphAStar(uint start, uint goal, std::list<int>& path);
+  
+  bool faceGraphAStar(const VertexT& start, const VertexT& goal, std::vector<VertexT>& path, std::vector<NormalT>& path_normals);
 
   bool vertexGraphDijkstra(uint start, uint goal, std::list<int>& path);
   
+  bool vertexGraphDijkstra(const VertexT& start, const VertexT& goal, std::vector<VertexT>& path, std::vector<NormalT>& path_normals);
+  
   bool faceGraphDijkstra(uint start, uint goal, std::list<int>& path);
+  
+  bool faceGraphDijkstra(const VertexT& start, const VertexT& goal, std::vector<VertexT>& path, std::vector<NormalT>& path_normals);
+  
+  void borderCostInflationVertexGraph(const InflationLevel& inflation_level);
+  
+  void borderCostInflationVertexGraph(const InflationLevel& inflation_level, std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr>& contour);
 
+  
+  void vertexGraphEdgeRegionGrowing(
+    double max_distance,
+    double max_normal_angle
+  );
+  
+  void vertexGraphEdgeRegionGrowing(
+    const int center_index,
+    const VertexT& center_vertex,
+    const NormalT& center_normal,
+    const typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr current_vertex_ptr,
+    double max_distance,
+    double max_normal_angle_cos
+  );
+  
+  void faceGraphEdgeRegionGrowing(
+    double max_distance,
+    double max_normal_angle
+  );
+  
+  void faceGraphEdgeRegionGrowing(
+    const int center_index,
+    const VertexT& center_vertex,
+    const NormalT& center_normal,
+    const typename HalfEdgeMesh<VertexT, NormalT>::FacePtr current_face_ptr,
+    double max_distance,
+    double max_normal_angle_cos
+  );
+  
   uint getRandomVertexID(){
     int random = std::rand();
     return (uint)(this->m_vertices.size()*(float)random / RAND_MAX)-1;
@@ -126,13 +222,28 @@ public:
     return this->m_faces;
   }
 
+  void getNearestVertexIndexFaceGraph(const VertexT vertex, int& vertex_index);
+  
+  void getNearestVertexIndexVertexGraph(const VertexT vertex, int& vertex_index);
+
+  void prepareGraphForNavigation();
+
+  void findContours(std::vector<std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr> >& contours);
+  
+  void getVertexCostsFaceGraph(std::vector<float>& costs);
+  
+  void getVetrexCostsVertexGraph(std::vector<float>& costs);
+  
+  void getDistancesFaceGraph(std::vector<float>& costs);
+  
+  void getDistancesVertexGraph(std::vector<float>& costs);
+
 private:
+
   Graph face_graph, vertex_graph;
   size_t face_cnt;
   size_t vertex_cnt;
-  struct FoundGoal{};
-  
-  void getNearestVertexIndex(VertexT vertex, size_t& vertex_index);
+  struct FoundGoal{};  
 
   class AStarGoalVisitor : public boost::default_astar_visitor
   {
@@ -151,17 +262,12 @@ private:
   class FaceGraphDistanceHeuristic : public boost::astar_heuristic<Graph, CostType>
   {
     public:
-      FaceGraphDistanceHeuristic(typename HalfEdgeMesh<VertexT, NormalT>::FaceVector& faces, IndexMap& indices, GraphNode goal)
-        : faces(faces), indices(indices)
-      {
-        goal_vertex = faces[indices[goal]]->getCentroid();  
-      }
-      CostType operator()(GraphNode u)
-      {
-        int index = indices[u];
-        VertexT u_vertex = faces[index]->getCentroid();
-        return u_vertex.distance(goal_vertex);
-      }
+      FaceGraphDistanceHeuristic(
+        typename HalfEdgeMesh<VertexT, NormalT>::FaceVector& faces,
+        IndexMap& indices,
+        GraphNode goal
+      );
+      CostType operator()(GraphNode u);
     private:
       VertexT goal_vertex;
       IndexMap indices;
@@ -171,23 +277,17 @@ private:
   class VertexGraphDistanceHeuristic : public boost::astar_heuristic<Graph, CostType>
   {
     public:
-      VertexGraphDistanceHeuristic(typename HalfEdgeMesh<VertexT, NormalT>::VertexVector& vertices, IndexMap& indices, GraphNode goal)
-        : vertices(vertices), indices(indices)
-      {
-        goal_vertex = vertices[indices[goal]]->m_position;  
-      }
-      CostType operator()(GraphNode u)
-      {
-        int index = indices[u];
-        VertexT u_vertex = vertices[index]->m_position;
-        return u_vertex.distance(goal_vertex);
-      }
+      VertexGraphDistanceHeuristic(
+        typename HalfEdgeMesh<VertexT, NormalT>::VertexVector& vertices,
+        IndexMap& indices,
+        GraphNode goal
+      );
+      CostType operator()(GraphNode u);
     private:
       VertexT goal_vertex;
       IndexMap indices;
       typename GraphHalfEdgeMesh<VertexT, NormalT>::VertexVector vertices;
   };
-
 };
 
 } // namespace lvr

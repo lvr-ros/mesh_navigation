@@ -13,9 +13,13 @@
     <build_depend>std_msgs</build_depend>
     <build_depend>pluginlib</build_depend>
     <build_depend>mesh_msgs</build_depend>
+    <build_depend>mesh_msgs_transform</build_depend>
     <build_depend>dynamic_reconfigure</build_depend>
     <build_depend>nav_core</build_depend>
     <build_depend>lvr_ros</build_depend>
+    <build_depend>robot_navigation</build_depend>
+    <build_depend>tf</build_depend>
+
 
 
     <run_depend>roscpp</run_depend>
@@ -23,11 +27,15 @@
     <run_depend>std_msgs</run_depend>
     <run_depend>pluginlib</run_depend>
     <run_depend>mesh_msgs</run_depend>
+    <run_depend>mesh_msgs_transform</run_depend>
     <run_depend>dynamic_reconfigure</run_depend>
     <run_depend>nav_core</run_depend>
     <run_depend>lvr_ros</run_depend>
+    <run_depend>robot_navigation</run_depend>
+    <run_depend>tf</run_depend>
+
 
     <export>
-      <nav_core plugin="${prefix}/mesh_planner_plugins.xml"/>
+      <robot_navigation plugin="${prefix}/mesh_planner_plugins.xml"/>
     </export>
 </package>
