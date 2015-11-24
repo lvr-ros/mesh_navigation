@@ -63,15 +63,19 @@ namespace mesh_navigation{
       ROS_INFO("global start point: (%f %f %f)", start_vertex.x, start_vertex.y, start_vertex.z);
       ROS_INFO("global goal point: (%f %f %f)", goal_vertex.x, goal_vertex.y, goal_vertex.z);
       
+      float roughness_factor = 3;
+      float height_diff_factor = 3;
+      
+      
       switch(graph_base_type_){
         case VertexGraph:
-		  mesh_ptr->vertexGraphCalculateEdgeWeights();
+		  mesh_ptr->vertexGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
           if(!mesh_ptr->vertexGraphDijkstra(start_vertex, goal_vertex, path, path_normals)){
             return false;  
           }
           break;
         case FaceGraph:
-   		  mesh_ptr->faceGraphCalculateEdgeWeights();
+   		  mesh_ptr->faceGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
           if(!mesh_ptr->faceGraphDijkstra(start_vertex, goal_vertex, path, path_normals)){
             return false;  
           }
@@ -272,11 +276,15 @@ namespace mesh_navigation{
     lvr::GraphHalfEdgeMesh<VertexType, NormalType>::InflationLevel inflation_level;
 	inflation_level.LETHAL = 256.0;
 	inflation_level.INSCRIBED = 255.0;
-	inflation_level.INSCRIBED_RADIUS =  0.30;
+	inflation_level.INSCRIBED_RADIUS =  0.10;//0.30;
 	inflation_level.INSCRIBED_RADIUS_SQUARED = pow(inflation_level.INSCRIBED_RADIUS, 2);
-	inflation_level.MAX_INFLATION_RADIUS = 0.40;
+	inflation_level.MAX_INFLATION_RADIUS = 0.20;// 0.40;
 	inflation_level.MAX_INFLATION_RADIUS_SQUARED = pow(inflation_level.MAX_INFLATION_RADIUS, 2);
+	inflation_level.ROUGHNESS_THRESHOLD = 0.75 * M_PI;
+	inflation_level.HEIGHT_DIFF_THRESHOLD = 0.1;
     mesh_ptr->borderCostInflationVertexGraph(inflation_level);
+    //mesh_ptr->vertexGraphCalculateAverageVertexAngles();
+	mesh_ptr->vertexGraphCalculateLocalRoughnessAndHeightDifference(0.06);
 
     ROS_INFO("Finalize mesh and convert it to message...");
     mesh_ptr->finalize();
@@ -289,12 +297,23 @@ namespace mesh_navigation{
     
 	ROS_INFO("Add navigation colors...");
     mesh_ptr->finalize();
+    
+    
+    float riskiness_factor = 1;
+    float roughness_factor = 450;
+    float height_diff_factor = 0;//200;
+    
+    mesh_ptr->vertexGraphCombineVertexCosts(riskiness_factor, roughness_factor, height_diff_factor);
+    mesh_ptr->faceGraphCombineVertexCosts(riskiness_factor, roughness_factor, height_diff_factor);
+    
     std::vector<float> face_costs, vertex_costs;
-    mesh_ptr->getVertexCostsFaceGraph(face_costs);
+	mesh_ptr->getVertexCostsFaceGraph(face_costs);
     mesh_ptr->getVetrexCostsVertexGraph(vertex_costs);
     
-    lvr_ros::intensityToTriangleRainbowColors(face_costs, planning_mesh_msg.mesh);
-    lvr_ros::intensityToVertexRainbowColors(vertex_costs, planning_mesh_msg.mesh);
+    
+    
+    lvr_ros::intensityToTriangleRainbowColors(face_costs, planning_mesh_msg.mesh, 0, 256);
+    lvr_ros::intensityToVertexRainbowColors(vertex_costs, planning_mesh_msg.mesh, 0, 256);
 
 	ROS_INFO("Publish navigation mesh!");
     navigation_mesh_pub.publish(planning_mesh_msg);

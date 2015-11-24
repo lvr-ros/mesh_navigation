@@ -23,6 +23,7 @@
  *  @date 25.08.2015
  *  @author Sebastian Pütz (spuetz@uos.de)
  */
+#include <boost/math/special_functions/fpclassify.hpp>
 
 
 namespace lvr
@@ -34,6 +35,27 @@ GraphHalfEdgeMesh<VertexT, NormalT>::GraphHalfEdgeMesh( )
 {
 }
 
+template<typename VertexT>
+inline bool vertexIsValid(VertexT& vertex){
+  return
+    boost::math::isfinite<float>(vertex.x) &&
+    boost::math::isfinite<float>(vertex.y) &&
+    boost::math::isfinite<float>(vertex.z);
+}
+
+template<typename NormalT>
+inline bool normalIsValid(NormalT& normal){
+  if(!( boost::math::isfinite<float>(normal.x) &&
+        boost::math::isfinite<float>(normal.y) &&
+        boost::math::isfinite<float>(normal.z)
+  )) return false;
+  
+  double length = normal.length2();
+  return length > 0.99 && length < 1.01;
+    
+}
+
+
 template<typename VertexT, typename NormalT>
 GraphHalfEdgeMesh<VertexT, NormalT>::GraphHalfEdgeMesh(
         MeshBufferPtr mesh)
@@ -44,19 +66,42 @@ GraphHalfEdgeMesh<VertexT, NormalT>::GraphHalfEdgeMesh(
   floatArr normals = mesh->getVertexNormalArray(num_normals);
     // Add all vertices
     const bool insert_normals = num_normals == num_vertices;
+    if(!insert_normals){
+      std::cerr << "normals are not inserted!" << std::endl;
+    }
+    
     for(size_t i = 0; i < num_vertices; i++)
     {
-        addVertex(VertexT(vertices[3 * i], vertices[3 * i + 1], vertices[3 * i + 2]));
-    if(insert_normals){
-      this->addNormal(NormalT(normals[3 * i], normals[3 * i + 1], normals[3 * i + 2]));
-    }
+      VertexT new_vertex(vertices[3 * i], vertices[3 * i + 1], vertices[3 * i + 2]);
+      if(! vertexIsValid(new_vertex)){
+        std::cerr << "invalid vertex: " << new_vertex << std::endl;
+      }else{
+        addVertex(new_vertex);
+        if(insert_normals){
+          NormalT new_normal(normals[3 * i], normals[3 * i + 1], normals[3 * i + 2]);
+          if(! normalIsValid(new_normal)){
+            std::cerr << "inavlid normal: " << new_normal << std::endl;
+            this->addNormal(NormalT(0, 0, 1));
+          }else{
+            this->addNormal(new_normal);
+          }
+        }
+      }
     }
 
     // Add all faces
     uintArr faces = mesh->getFaceArray(num_faces);
     for(size_t i = 0; i < num_faces; i++)
     {
-        addTriangle(faces[3 * i], faces[3 * i + 1], faces[3 * i + 2]);
+      unsigned int a, b, c;
+      a = faces[3 * i];
+      b = faces[3 * i + 1];
+      c = faces[3 * i + 2];
+      if( a >= num_vertices || b >= num_vertices || c >= num_vertices){
+        std::cerr << " invalid index while triangle insertion: (" << a << ", " << b << ", " << c << ") - max vertex index is: " << num_vertices-1 << std::endl;
+      }else{
+        addTriangle(a,b,c);
+      }
     }
 
     // Initial remaining stuff
@@ -82,6 +127,9 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::addVertex(VertexT v)
   // init vertex costs to zero
   VertexCostMap vertex_graph_vertex_costmap = boost::get(vertex_costs_t(), vertex_graph);
   vertex_graph_vertex_costmap[vertex_insert] = 0;
+  if(vertex_insert != vertex_cnt){
+    std::cerr << "difference in graph and mesh index: " << vertex_insert << ", " << vertex_cnt << std::endl;
+  }
   vertex_cnt++;
 }
 
@@ -170,7 +218,7 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::getDistancesVertexGraph(std::vector<fl
 
 template<typename VertexT, typename NormalT>
 void GraphHalfEdgeMesh<VertexT, NormalT>::prepareGraphForNavigation(){
-  std::vector<std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr> >contours;
+  std::vector<std::vector<int> >contours;
   findContours(contours);
 }
 
@@ -463,7 +511,7 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::getNearestVertexIndexFaceGraph(const V
 
   for(size_t i = 0; i < face_cnt; i++){
     double dist = vertex.distance(this->m_faces[i]->getCentroid());
-    if( dist < smallest_dist ){
+    if( dist < smallest_dist && boost::degree(i, face_graph) > 2){
       smallest_dist = dist;
       smallest_index = i;
     }
@@ -479,7 +527,7 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::getNearestVertexIndexVertexGraph(const
 
   for(size_t i = 0; i < vertex_cnt; i++){
     double dist = vertex.distance(this->m_vertices[i]->m_position);
-    if( dist < smallest_dist ){
+    if( dist < smallest_dist && boost::degree(i, vertex_graph) > 2 ){
       smallest_dist = dist;
       smallest_index = i;
     }
@@ -641,23 +689,39 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphEdgeRegionGrowing(
   }
 }
 
-
+// input VertexDistanceMap (squared distances to contours)
+// output VertexRiskinessMap (inflation level values)
 template<typename VertexT, typename NormalT>
 void GraphHalfEdgeMesh<VertexT, NormalT>::borderCostInflationVertexGraph(const InflationLevel& inflation_level){
-  std::vector<std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr> > contours;
+  std::vector<std::vector<int> > contours;
   findContours(contours);
   
   VertexDistanceMap vertex_distance_map = boost::get(boost::vertex_distance_t(), vertex_graph);
   VertexRiskinessMap vertex_riskiness_map = boost::get(vertex_riskiness_t(), vertex_graph);
-  VertexCostMap vertex_cost_map = boost::get(vertex_costs_t(), vertex_graph);
+  VertexHeightDifferenceMap vertex_height_difference_map = boost::get(vertex_height_difference_t(), vertex_graph); 
+  VertexRoughnessMap vertex_roughness_map = boost::get(vertex_roughness_t(), vertex_graph); 
+
     
+  std::vector<int> lethal_by_roughness;
+  std::vector<int> lethal_by_height_diff;
+  
   for(size_t i=0; i<vertex_cnt; i++){
     vertex_distance_map[i] = std::numeric_limits<CostType>::max();
+    if(vertex_height_difference_map[i] >= inflation_level.HEIGHT_DIFF_THRESHOLD){
+      lethal_by_height_diff.push_back(i);
+    }
+    if(vertex_roughness_map[i] >= inflation_level.ROUGHNESS_THRESHOLD){
+      lethal_by_roughness.push_back(i);
+    }
   }
   
-  typename std::vector<std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr> >::iterator con_iter;
+  contours.push_back(lethal_by_roughness);
+  contours.push_back(lethal_by_height_diff);
+
+  typename std::vector<std::vector<int> >::iterator con_iter;
   for(con_iter = contours.begin(); con_iter!=contours.end(); ++con_iter){
-    borderCostInflationVertexGraph(inflation_level, *con_iter);
+    if(con_iter->size() > 15)
+      borderCostInflationVertexGraph(inflation_level, *con_iter);
   }
   
   for(size_t i=0; i<vertex_cnt; i++){
@@ -680,19 +744,19 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::borderCostInflationVertexGraph(const I
     }else{
       vertex_riskiness_map[i] = inflation_level.LETHAL;
     }
-    vertex_cost_map[i] = vertex_riskiness_map[i];
   }
 }
 
-
+// input -> VertexDistanceMap (squared distance to any contour)
+// output -> VertexDistanceMap ( squared distance to contour )
 template<typename VertexT, typename NormalT>
-void GraphHalfEdgeMesh<VertexT, NormalT>::borderCostInflationVertexGraph(const InflationLevel& inflation_level, std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr>& contour){
+void GraphHalfEdgeMesh<VertexT, NormalT>::borderCostInflationVertexGraph(const InflationLevel& inflation_level, std::vector<int>& contour){
   VertexDistanceMap vertex_distance_map = boost::get(boost::vertex_distance, vertex_graph);
   
-	typename HalfEdgeMesh<VertexT, NormalT>::EdgeVector::iterator edge_iter;
+  std::vector<int>::iterator con_iter;
 
-  for(edge_iter = contour.begin(); edge_iter != contour.end(); ++edge_iter){
-    typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr center_vertex = (*edge_iter)->end();
+  for(con_iter = contour.begin(); con_iter != contour.end(); ++con_iter){
+    typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr center_vertex = this->m_vertices[(*con_iter)];
     int center_index = center_vertex->m_index;
     vertex_distance_map[center_index] = 0;
     std::queue<typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr> vertex_queue;
@@ -716,9 +780,251 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::borderCostInflationVertexGraph(const I
   }
 }
 
+// output -> EdgeAngleMap
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateAngleEdges()
+{
+  EdgeAngleMap vertex_graph_angles = boost::get(edge_angle_t(), vertex_graph);
+  //WeightMap vertex_weightmap = boost::get(boost::edge_weight, vertex_graph);
+  //VertexRiskinessMap vertex_riskiness_map = boost::get(vertex_riskiness_t(), vertex_graph);
+  
+  size_t progress_one = vertex_cnt / 100;
+  std::cout << "calculate angle edges" << std::endl;
+  for(size_t i=0; i< vertex_cnt; i++){
+    if(i%progress_one == 0){
+      std::cout << "progress: " << i / progress_one << "%" << std::endl;
+    }
+    std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(i, vertex_graph);
+    for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
+  	  if( vertex_graph_angles[*out_edge_iter.first] == 0 ){
+        int target_vertex = boost::target(*out_edge_iter.first, vertex_graph);
+        int source_vertex = boost::source(*out_edge_iter.first, vertex_graph);
+        
+        double edge_angle = acos ( this->m_vertices[source_vertex]->m_normal * this->m_vertices[target_vertex]->m_normal );
+        vertex_graph_angles[*out_edge_iter.first] = edge_angle;
+      }
+    }
+  }
+}
+
+// input -> EdgeAngleMap
+// output -> VertexRoughnessMap
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateAverageVertexAngles()
+{
+  vertexGraphCalculateAngleEdges();
+  std::cout << "calculate average vertex angles" << std::endl;
+  
+  size_t progress_one = vertex_cnt / 100;
+
+  VertexAverageAngleMap vertex_graph_average_angles = boost::get(vertex_average_angle_t(), vertex_graph);
+  EdgeAngleMap vertex_graph_angles = boost::get(edge_angle_t(), vertex_graph);
+  for(size_t i=0; i< vertex_cnt; i++){
+    if(i%progress_one == 0){
+      std::cout << "progress: " << i / progress_one << "%" << std::endl;
+    }
+    size_t degree = boost::degree(i, vertex_graph);
+    if(degree > 0){
+      double angle_sum = 0;
+      std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(i, vertex_graph);
+      for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
+        angle_sum += vertex_graph_angles[*out_edge_iter.first];
+      }
+      vertex_graph_average_angles[i] = angle_sum / degree;
+    }else{
+      vertex_graph_average_angles[i] = 0;
+    }
+  }
+}
+
+// input -> VertexRoughnessMap
+// output -> VertexRoughnessMap
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateLocalRoughnessAndHeightDifference(double radius)
+{
+  vertexGraphCalculateAverageVertexAngles();
+  std::cout << "calculated local roughness and local height differences ... " << std::endl;
+  double squared_radius = radius * radius;
+  
+  VertexAverageAngleMap avarage_angles = boost::get(vertex_average_angle_t(), vertex_graph);
+  VertexRoughnessMap local_roughness = boost::get(vertex_roughness_t(), vertex_graph);
+  VertexHeightDifferenceMap local_height_difference = boost::get(vertex_height_difference_t(), vertex_graph);
+
+  bool* used = new bool[vertex_cnt];
+  for(size_t i=0; i<vertex_cnt; i++){
+    used[i] = false;
+  }
+  
+  size_t progress_one = vertex_cnt / 100;
+
+
+  for(size_t i=0; i< vertex_cnt; i++){
+    if(i%progress_one == 0){
+      std::cout << "progress: " << i / progress_one << "%" << std::endl;
+    }
+    
+    
+    size_t degree = boost::degree(i, vertex_graph);
+    if(degree == 0){
+      local_roughness[i] = 0;
+      local_height_difference[i] = 0;
+      continue;
+    }
+    
+    std::queue<int> queue;
+    std::vector<int> current_nodes;
+
+    queue.push(i);
+    VertexT& vertex = this->m_vertices[i]->m_position;
+    
+    while(!queue.empty()){
+      int node = queue.front();
+      queue.pop();
+      
+      used[node] = true;
+      current_nodes.push_back(node);
+      
+      std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(node, vertex_graph);
+      for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
+        int target = boost::target(*out_edge_iter.first, vertex_graph);
+        if(target == node){
+          target = boost::source(*out_edge_iter.first, vertex_graph);
+        }
+        if(!used[target] && this->m_vertices[target]->m_position.sqrDistance(vertex) <= squared_radius){
+          queue.push(target);
+        }
+      }
+    }
+    double sum = 0;
+    double min = std::numeric_limits<float>::max();
+    double max = std::numeric_limits<float>::min();
+    for(size_t j=0; j<current_nodes.size(); j++){
+      int node = current_nodes[j];
+      double height = this->m_vertices[node]->m_position.z;
+      min = std::min(height, min);
+      max = std::max(height, max);
+      sum += avarage_angles[node];
+      used[node] = false;
+    }
+    local_roughness[i] = sum / current_nodes.size();
+    local_height_difference[i] = max - min;
+    
+  }
+  
+  delete[] used;
+}
+
+// output -> EdgeAngleMap
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCalculateAngleEdges()
+{
+  EdgeAngleMap face_graph_angles = boost::get(edge_angle_t(), face_graph);
+
+  for(size_t i=0; i< face_cnt; i++){
+    std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(i, face_graph);
+    for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
+  	  if( face_graph_angles[*out_edge_iter.first] == 0 ){
+        int target_face = boost::target(*out_edge_iter.first, face_graph);
+        int source_face = boost::source(*out_edge_iter.first, face_graph);
+        
+        double edge_angle = acos ( this->m_faces[source_face]->getFaceNormal() * this->m_faces[target_face]->getFaceNormal() );
+        face_graph_angles[*out_edge_iter.first] = edge_angle;
+      }
+    }
+  }
+}
+
+// input -> EdgeAngleMap
+// output -> VertexRoughnessMap
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCalculateAverageVertexAngles()
+{
+  faceGraphCalculateAngleEdges();
+  
+  VertexAverageAngleMap face_graph_average_angles = boost::get(vertex_average_angle_t(), face_graph);
+  EdgeAngleMap face_graph_angles = boost::get(edge_angle_t(), face_graph);
+  for(size_t i=0; i< face_cnt; i++){
+    size_t degree = boost::degree(i, face_graph);
+    if(degree > 0){
+      double angle_sum = 0;
+      std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(i, face_graph);
+      for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
+        angle_sum += face_graph_angles[*out_edge_iter.first];
+      }
+      face_graph_average_angles[i] = angle_sum / degree;
+    }else{
+      face_graph_average_angles[i] = 0;
+    }
+  }
+}
+
+// input -> VertexRoughnessMap
+// output -> VertexRoughnessMap
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCalculateLocalRoughnessAndHeightDifference(double radius)
+{
+  faceGraphCalculateAverageVertexAngles();
+  
+  double squared_radius = radius * radius;
+  VertexAverageAngleMap avarage_angles = boost::get(vertex_average_angle_t(), face_graph);
+  VertexRoughnessMap local_roughness = boost::get(vertex_roughness_t(), face_graph);
+  VertexHeightDifferenceMap local_height_difference = boost::get(vertex_height_difference_t(), face_graph);
+
+  
+  // reset used falgs
+  for(size_t i=0; i< face_cnt; i++){
+    this->m_faces[i]->m_used = false;
+  }
+
+  for(size_t i=0; i< face_cnt; i++){
+    size_t degree = boost::degree(i, face_graph);
+    if(degree == 0){
+      local_roughness[i] = 0;
+      local_height_difference[i] = 0;
+      continue;
+    }
+    
+    std::queue<int> queue;
+    std::vector<int> current_nodes;
+
+    queue.push(i);
+    VertexT& vertex = this->m_faces[i]->getCentorid();
+    
+    while(!queue.empty()){
+      int node = queue.front();
+      queue.pop();
+      
+      this->m_faces[node]->m_used = true;
+      current_nodes.push_back(node);
+      
+      std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(node, face_graph);
+      for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
+        int target = boost::target(*out_edge_iter.first, face_graph);
+        if(!this->m_faces[target]->m_used && 
+              this->m_faces[target]->getCentroid().sqrDistance(vertex) <= squared_radius){
+          queue.push(target);
+        }
+      }
+    }
+    double sum = 0;
+    double min = std::numeric_limits<float>::max();
+    double max = std::numeric_limits<float>::min();
+    for(size_t j=0; j<current_nodes.size(); j++){
+      int node = current_nodes[j];
+      double height = this->m_faces[node]->getCentroid().z;
+      min = std::min(height, min);
+      max = std::max(height, max);
+      sum += avarage_angles[node];
+      this->m_faces[node]->m_used = false;
+    }
+    local_height_difference[i] = max - min;
+    local_roughness[i] = sum / current_nodes.size();
+  }
+}
+
 
 template<typename VertexT, typename NormalT>
-void GraphHalfEdgeMesh<VertexT, NormalT>::findContours(std::vector<std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr> >& contours)
+void GraphHalfEdgeMesh<VertexT, NormalT>::findContours(std::vector<std::vector<int> >& contours)
 {
   // reset the used flags
   for(size_t i=0; i<face_cnt; i++){
@@ -728,8 +1034,9 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::findContours(std::vector<std::vector<t
     }
   }
 
-  VertexCostMap vertex_costs_face_graph = boost::get(vertex_costs_t(), face_graph);
-  VertexCostMap vertex_costs_vertx_graph = boost::get(vertex_costs_t(), vertex_graph);
+  // TODO delete the two lines
+  //VertexCostMap vertex_costs_face_graph = boost::get(vertex_costs_t(), face_graph);
+  //VertexCostMap vertex_costs_vertx_graph = boost::get(vertex_costs_t(), vertex_graph);
 
   // search for border faces
   for(size_t i = 0; i < face_cnt; i++){
@@ -768,12 +1075,12 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::findContours(std::vector<std::vector<t
       
       if(!current_pair->hasFace()){
         // found beginning of a new contour;
-        std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr> contour;
+        std::vector<int> contour;
         typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr current_edge_in_contour, next;
         typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr  current_vertex_in_contour; 
         
         current_edge_in_contour = next = current_pair;
-        contour.push_back(current_edge_in_contour);
+        contour.push_back(current_vertex_in_contour->m_index);
 
         //while the contour is not closed
         while( next )
@@ -782,12 +1089,17 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::findContours(std::vector<std::vector<t
           next = 0;
           
           current_vertex_in_contour = current_edge_in_contour->end();
+          
+          // TODO delete the comment block // just for marking.. and testing
+          /*
           if(current_edge_in_contour->hasPair() && current_edge_in_contour->pair()->hasFace()){
             size_t face_index = current_edge_in_contour->pair()->face()->m_face_index;
             vertex_costs_face_graph[face_index] = 1;
           }
+          
           size_t vertex_index = current_vertex_in_contour->m_index;
           vertex_costs_vertx_graph[vertex_index] = 1;
+          */
           
           typename HalfEdgeMesh<VertexT, NormalT>::EdgeVector& out_edges = current_vertex_in_contour->out;
           typename HalfEdgeMesh<VertexT, NormalT>::EdgeVector::iterator edge_iter;
@@ -799,7 +1111,7 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::findContours(std::vector<std::vector<t
             (*edge_iter)->used = true;
             if(!(*edge_iter)->hasFace()){
               next = *edge_iter;
-              contour.push_back(next);
+              contour.push_back(next->end()->m_index);
             }
           }
         }
@@ -811,30 +1123,130 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::findContours(std::vector<std::vector<t
 
 
 template<typename VertexT, typename NormalT>
-void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateEdgeWeights()
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateEdgeWeights(float roughness_factor, float height_diff_factor)
 {
+
+  VertexCostMap vertex_graph_vertex_costmap = boost::get(vertex_costs_t(), vertex_graph);
+  VertexRoughnessMap vertex_graph_vertex_roughness = boost::get(vertex_roughness_t(), vertex_graph);
+
   EdgeDistanceMap vertex_graph_distances = boost::get(edge_distance_t(), vertex_graph);
   WeightMap vertex_weightmap = boost::get(boost::edge_weight, vertex_graph);
+  VertexRiskinessMap vertex_riskiness_map = boost::get(vertex_riskiness_t(), vertex_graph);
+  VertexHeightDifferenceMap vertex_graph_height_difference = boost::get(vertex_height_difference_t(), vertex_graph);
+
+  
   for(size_t i=0; i< vertex_cnt; i++){
     std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(i, vertex_graph);
     for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
-      vertex_weightmap[*out_edge_iter.first] = vertex_graph_distances[*out_edge_iter.first];
+  	  int target_vertex = boost::target(*out_edge_iter.first, vertex_graph);
+  	  int source_vertex = boost::source(*out_edge_iter.first, vertex_graph);
+  	  double edge_risk =  std::max(vertex_riskiness_map[source_vertex], vertex_riskiness_map[target_vertex]);
+      double edge_roughness_factor = std::max(vertex_graph_vertex_roughness[source_vertex], vertex_graph_vertex_roughness[target_vertex]) * roughness_factor + 1;
+      double edge_height_diff_factor = std::max(vertex_graph_height_difference[source_vertex], vertex_graph_height_difference[target_vertex]) * height_diff_factor + 1;
+      vertex_weightmap[*out_edge_iter.first] = vertex_graph_distances[*out_edge_iter.first] * edge_roughness_factor * edge_height_diff_factor + edge_risk;
     }
   }
 }
 
 
 template<typename VertexT, typename NormalT>
-void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCalculateEdgeWeights()
+void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCalculateEdgeWeights(float roughness_factor, float height_diff_factor)
 {
+
+  VertexCostMap face_graph_vertex_costmap = boost::get(vertex_costs_t(), face_graph);
+  VertexRoughnessMap face_graph_vertex_roughness = boost::get(vertex_roughness_t(), face_graph);
+
   EdgeDistanceMap face_graph_distances = boost::get(edge_distance_t(), face_graph);
   WeightMap face_weightmap = boost::get(boost::edge_weight, face_graph);
+  VertexRiskinessMap vertex_riskiness_map = boost::get(vertex_riskiness_t(), face_graph);
+  VertexHeightDifferenceMap face_graph_height_difference = boost::get(vertex_height_difference_t(), face_graph);
+
+  
   for(size_t i=0; i< face_cnt; i++){
     std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(i, face_graph);
     for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
-      face_weightmap[*out_edge_iter.first] = face_graph_distances[*out_edge_iter.first];
+      int target_vertex = boost::target(*out_edge_iter.first, face_graph);
+      int source_vertex = boost::source(*out_edge_iter.first, face_graph);
+      double edge_risk =  std::max(vertex_riskiness_map[source_vertex], vertex_riskiness_map[target_vertex]);
+      double edge_roughness_factor = std::max(face_graph_vertex_roughness[source_vertex], face_graph_vertex_roughness[target_vertex]) * roughness_factor + 1;
+      double edge_height_diff_factor = std::max(face_graph_height_difference[source_vertex], face_graph_height_difference[target_vertex]) * height_diff_factor + 1;
+      face_weightmap[*out_edge_iter.first] = face_graph_distances[*out_edge_iter.first] * edge_roughness_factor * edge_height_diff_factor + edge_risk;
     }
   }
 }
+
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCombineVertexCosts(float riskiness_factor, float roughness_factor, float height_diff_factor)
+{
+  VertexCostMap face_graph_vertex_costmap = boost::get(vertex_costs_t(), face_graph);
+  VertexRiskinessMap face_graph_vertex_riskiness = boost::get(vertex_riskiness_t(), face_graph);
+  VertexRoughnessMap face_graph_vertex_roughness = boost::get(vertex_roughness_t(), face_graph);
+  VertexHeightDifferenceMap face_graph_height_difference = boost::get(vertex_height_difference_t(), face_graph);
+  
+  for(size_t i=0; i<face_cnt; i++){
+    face_graph_vertex_costmap[i] =
+        riskiness_factor * face_graph_vertex_riskiness[i]
+      + roughness_factor * face_graph_vertex_roughness[i]
+      + height_diff_factor * face_graph_height_difference[i];
+  }
+}
+
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCombineVertexCosts(float riskiness_factor, float roughness_factor, float height_diff_factor)
+{
+  VertexCostMap vertex_graph_vertex_costmap = boost::get(vertex_costs_t(), vertex_graph);
+  VertexRiskinessMap vertex_graph_vertex_riskiness = boost::get(vertex_riskiness_t(), vertex_graph);
+  VertexRoughnessMap vertex_graph_vertex_roughness = boost::get(vertex_roughness_t(), vertex_graph);
+  VertexHeightDifferenceMap vertex_graph_height_difference = boost::get(vertex_height_difference_t(), vertex_graph);
+
+  std::cout <<  " vertex_cnt: " << vertex_cnt << std::endl;
+  for(size_t i=0; i<vertex_cnt; i++){
+    vertex_graph_vertex_costmap[i] =
+        riskiness_factor * vertex_graph_vertex_riskiness[i]
+      + roughness_factor * vertex_graph_vertex_roughness[i]
+      + height_diff_factor * vertex_graph_height_difference[i];
+  }
+}
+
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCalculateEdgeHeightDifferences()
+{
+  EdgeHeightDifferenceMap height_difference_map = boost::get(edge_height_difference_t(), face_graph);
+  
+  for(size_t i=0; i< face_cnt; i++){
+    std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(i, face_graph);
+    for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
+      
+      if(height_difference_map[*out_edge_iter.first] > 0){
+        continue;
+      }
+      int target_vertex = boost::target(*out_edge_iter.first, face_graph);
+      int source_vertex = boost::source(*out_edge_iter.first, face_graph);
+      VertexT diff = this->m_faces[source]->getCentroid() - this->m_faces[target]->getCentroid();
+      height_difference_map[*out_edge_iter.first] = std::abs(diff.z);
+    }
+  }
+}
+
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateEdgeHeightDifferences()
+{
+  EdgeHeightDifferenceMap height_difference_map = boost::get(edge_height_difference_t(), vertex_graph);
+  
+  for(size_t i=0; i< vertex_cnt; i++){
+    std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(i, vertex_graph);
+    for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
+      
+      if(height_difference_map[*out_edge_iter.first] > 0){
+        continue;
+      }
+      int target_vertex = boost::target(*out_edge_iter.first, vertex_graph);
+      int source_vertex = boost::source(*out_edge_iter.first, vertex_graph);
+      VertexT diff = this->m_vertices[source]->m_position - this->m_vertices[target]->m_position;
+      height_difference_map[*out_edge_iter.first] = std::abs(diff.z);
+    }
+  }
+}
+
 
 } // namespace lvr

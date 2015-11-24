@@ -53,6 +53,16 @@ struct edge_distance_t {
   typedef boost::edge_property_tag kind;
 };
 
+// Edge Angles
+struct edge_angle_t {
+  typedef boost::edge_property_tag kind;
+};
+
+// Height Differences between nodes
+struct edge_height_difference_t {
+  typedef boost::edge_property_tag kind;
+};
+
 // Roughness - Rough Terrain
 struct vertex_roughness_t {
   typedef boost::vertex_property_tag kind;	
@@ -62,6 +72,15 @@ struct vertex_roughness_t {
 struct vertex_riskiness_t {
   typedef boost::vertex_property_tag kind;
 };
+// Average Angles
+struct vertex_average_angle_t {
+  typedef boost::vertex_property_tag kind;
+};
+// Local Height Difference
+struct vertex_height_difference_t {
+  typedef boost::vertex_property_tag kind;
+};
+
 
 
 
@@ -74,23 +93,35 @@ typedef boost::adjacency_list<
   boost::property<boost::vertex_distance_t, cost,
   boost::property<boost::vertex_predecessor_t, vertex_descriptor,
   boost::property<vertex_costs_t, cost,
-  boost::property<vertex_riskiness_t, cost> > > >,
+  boost::property<vertex_riskiness_t, cost,
+  boost::property<vertex_roughness_t, cost,
+  boost::property<vertex_average_angle_t, cost,
+  boost::property<vertex_height_difference_t, cost> > > > > > >,
   boost::property<boost::edge_weight_t, cost,
-  boost::property<edge_distance_t, cost> >
+  boost::property<edge_angle_t, cost,
+  boost::property<edge_distance_t, cost,
+  boost::property<edge_height_difference_t, cost > > > >
 > Graph;
 
 typedef boost::graph_traits<Graph>::out_edge_iterator out_edge_iterator;
 typedef std::pair<out_edge_iterator, out_edge_iterator> out_edge_iterator_range;
 typedef boost::graph_traits < Graph >::adjacency_iterator adjacency_iterator;
 
-typedef boost::property_map<Graph, boost::edge_weight_t>::type WeightMap;
+
 typedef boost::property_map<Graph, boost::vertex_index_t>::type IndexMap;
 typedef boost::property_map<Graph, vertex_costs_t>::type VertexCostMap;
 typedef boost::property_map<Graph, boost::vertex_distance_t>::type VertexDistanceMap;
 typedef boost::property_map<Graph, boost::vertex_predecessor_t>::type PredecessorMap;
 typedef boost::property_map<Graph, vertex_riskiness_t>::type VertexRiskinessMap;
-typedef boost::property_map<Graph, edge_distance_t>::type EdgeDistanceMap;
+typedef boost::property_map<Graph, vertex_roughness_t>::type VertexRoughnessMap;
+typedef boost::property_map<Graph, vertex_average_angle_t>::type VertexAverageAngleMap;
+typedef boost::property_map<Graph, vertex_height_difference_t>::type VertexHeightDifferenceMap;
 
+
+typedef boost::property_map<Graph, boost::edge_weight_t>::type WeightMap;
+typedef boost::property_map<Graph, edge_distance_t>::type EdgeDistanceMap;
+typedef boost::property_map<Graph, edge_angle_t>::type EdgeAngleMap;
+typedef boost::property_map<Graph, edge_height_difference_t>::type EdgeHeightDifferenceMap;
 
 
 typedef Graph::vertex_descriptor GraphNode;
@@ -131,6 +162,8 @@ public:
 	CostType INSCRIBED_RADIUS_SQUARED;
 	CostType MAX_INFLATION_RADIUS;
 	CostType MAX_INFLATION_RADIUS_SQUARED;
+	CostType ROUGHNESS_THRESHOLD;
+	CostType HEIGHT_DIFF_THRESHOLD;
   };
 
   /*
@@ -152,9 +185,9 @@ public:
    */
   virtual void addTriangle(uint a, uint b, uint c);
 
-  void vertexGraphCalculateEdgeWeights();
+  void vertexGraphCalculateEdgeWeights(float roughness_factor, float height_diff_factor);
 
-  void faceGraphCalculateEdgeWeights();
+  void faceGraphCalculateEdgeWeights(float roughness_factor, float height_diff_factor);
 
   bool vertexGraphAStar(uint start, uint goal, std::list<int>& path);
   
@@ -174,9 +207,24 @@ public:
   
   void borderCostInflationVertexGraph(const InflationLevel& inflation_level);
   
-  void borderCostInflationVertexGraph(const InflationLevel& inflation_level, std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr>& contour);
-
+  void borderCostInflationVertexGraph(const InflationLevel& inflation_level, std::vector<int>& contour);
   
+  void vertexGraphCalculateAngleEdges();
+  
+  void faceGraphCalculateAngleEdges();
+  
+  void faceGraphCalculateAverageVertexAngles();
+  
+  void vertexGraphCalculateAverageVertexAngles();
+  
+  void faceGraphCalculateLocalRoughnessAndHeightDifference(double radius);
+  
+  void vertexGraphCalculateLocalRoughnessAndHeightDifference(double radius);
+  
+  void faceGraphCalculateEdgeHeightDifferences();
+  
+  void vertexGraphCalculateEdgeHeightDifferences();
+ 
   void vertexGraphEdgeRegionGrowing(
     double max_distance,
     double max_normal_angle
@@ -228,7 +276,7 @@ public:
 
   void prepareGraphForNavigation();
 
-  void findContours(std::vector<std::vector<typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr> >& contours);
+  void findContours(std::vector<std::vector<int> >& contours);
   
   void getVertexCostsFaceGraph(std::vector<float>& costs);
   
@@ -237,6 +285,10 @@ public:
   void getDistancesFaceGraph(std::vector<float>& costs);
   
   void getDistancesVertexGraph(std::vector<float>& costs);
+  
+  void vertexGraphCombineVertexCosts(float riskiness_factor, float roughness_factor, float height_diff_factor);
+
+  void faceGraphCombineVertexCosts(float riskiness_factor, float roughness_factor, float height_diff_factor);
 
 private:
 
