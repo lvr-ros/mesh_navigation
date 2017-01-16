@@ -1077,9 +1077,10 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::findContours(std::vector<std::vector<i
         // found beginning of a new contour;
         std::vector<int> contour;
         typename HalfEdgeMesh<VertexT, NormalT>::EdgePtr current_edge_in_contour, next;
-        typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr  current_vertex_in_contour; 
+        typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr current_vertex_in_contour; 
         
         current_edge_in_contour = next = current_pair;
+        current_vertex_in_contour = current_edge_in_contour->end();
         contour.push_back(current_vertex_in_contour->m_index);
 
         //while the contour is not closed
