@@ -217,13 +217,6 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::getDistancesVertexGraph(std::vector<fl
 }
 
 template<typename VertexT, typename NormalT>
-void GraphHalfEdgeMesh<VertexT, NormalT>::prepareGraphForNavigation(){
-  std::vector<std::vector<int> >contours;
-  findContours(contours);
-}
-
-
-template<typename VertexT, typename NormalT>
 bool GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphAStar(
   const VertexT& start,
   const VertexT& goal,

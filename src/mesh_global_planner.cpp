@@ -272,7 +272,6 @@ namespace mesh_navigation{
     
     ROS_INFO("Prepare mesh for navigation...");
    
-    //mesh_ptr->prepareGraphForNavigation();
     lvr::GraphHalfEdgeMesh<VertexType, NormalType>::InflationLevel inflation_level;
     inflation_level.LETHAL = 256.0;
     inflation_level.INSCRIBED = 255.0;

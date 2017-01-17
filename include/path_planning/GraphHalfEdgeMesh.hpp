@@ -285,8 +285,6 @@ public:
   
   void getNearestVertexIndexVertexGraph(const VertexT vertex, int& vertex_index);
 
-  void prepareGraphForNavigation();
-
   void findContours(std::vector<std::vector<int> >& contours);
   
   void getVertexCostsFaceGraph(std::vector<float>& costs);
