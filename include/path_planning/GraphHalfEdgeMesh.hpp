@@ -82,8 +82,6 @@ struct vertex_height_difference_t {
 };
 
 
-
-
 typedef boost::adjacency_list_traits<boost::listS, boost::vecS, boost::undirectedS>::vertex_descriptor vertex_descriptor;
 
 typedef boost::adjacency_list<
@@ -142,6 +140,15 @@ class GraphHalfEdgeMesh : public HalfEdgeMesh<VertexT, NormalT>
 public:
 
   typedef boost::shared_ptr< ::lvr::GraphHalfEdgeMesh<VertexT, NormalT> > Ptr;
+
+  typedef HalfEdge< HalfEdgeVertex<VertexT, NormalT>, HalfEdgeFace<VertexT, NormalT> > HEdge;
+  typedef HalfEdgeFace<VertexT, NormalT> HFace;
+  typedef HalfEdgeVertex<VertexT, NormalT> HVertex;
+
+
+  typedef HEdge* EdgePtr;
+  typedef HFace* FacePtr;
+  typedef HVertex* VertexPtr;
   
   GraphHalfEdgeMesh();
 
@@ -216,7 +223,11 @@ public:
   void faceGraphCalculateAverageVertexAngles();
   
   void vertexGraphCalculateAverageVertexAngles();
-  
+
+  void vertexGraphCalculateLocalNeighborhood(VertexPtr reference_vertex, double squared_radius, bool* used_array, std::vector<VertexPtr>& neighborhood);
+
+  void vertexGraphCalculateLocalNeighborhood(VertexPtr reference_vertex, VertexPtr current_vertex, double squared_radius, bool* used_array, std::vector<VertexPtr>& neighborhood);
+
   void faceGraphCalculateLocalRoughnessAndHeightDifference(double radius);
   
   void vertexGraphCalculateLocalRoughnessAndHeightDifference(double radius);

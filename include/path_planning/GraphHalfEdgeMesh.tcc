@@ -837,6 +837,35 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateAverageVertexAngle
   }
 }
 
+
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateLocalNeighborhood(VertexPtr reference_vertex, double squared_radius, bool* used_array, std::vector<VertexPtr>& neighborhood)
+{
+	vertexGraphCalculateLocalNeighborhood(reference_vertex, reference_vertex, squared_radius, used_array, neighborhood);
+}
+
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateLocalNeighborhood(VertexPtr reference_vertex, VertexPtr current_vertex, double squared_radius, bool* used_array, std::vector<VertexPtr>& neighborhood)
+{
+	typename vector<EdgePtr>::iterator it;
+
+	for(it = current_vertex->out.begin(); it != current_vertex->out.end(); it++)
+	{
+		EdgePtr e = *it;
+		VertexPtr next = e->end();
+
+		int index = next->m_index;
+		bool used = used_array[index];
+
+		if(! used && reference_vertex->m_position.sqrDistance(next->m_position) < squared_radius){
+			neighborhood.push_back(next);
+			used_array[index] = true;
+			vertexGraphCalculateLocalNeighborhood(reference_vertex, next, squared_radius, used_array, neighborhood);
+		}
+	}
+}
+
+
 // input -> VertexRoughnessMap
 // output -> VertexRoughnessMap
 template<typename VertexT, typename NormalT>
@@ -858,55 +887,34 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCalculateLocalRoughnessAndH
   size_t progress_one = vertex_cnt / 100;
 
 
+  std::vector<VertexPtr> neighborhood;
+
   for(size_t i=0; i< vertex_cnt; i++){
     if(i%progress_one == 0){
       std::cout << "progress: " << i / progress_one << "%" << std::endl;
     }
-    
-    
-    size_t degree = boost::degree(i, vertex_graph);
-    if(degree == 0){
-      local_roughness[i] = 0;
-      local_height_difference[i] = 0;
-      continue;
-    }
-    
-    std::queue<int> queue;
-    std::vector<int> current_nodes;
 
-    queue.push(i);
-    VertexT& vertex = this->m_vertices[i]->m_position;
+    neighborhood.clear();
+    VertexPtr vertex = this->m_vertices[i];
+	vertexGraphCalculateLocalNeighborhood(vertex, squared_radius, used, neighborhood);
     
-    while(!queue.empty()){
-      int node = queue.front();
-      queue.pop();
-      
-      used[node] = true;
-      current_nodes.push_back(node);
-      
-      std::pair<out_edge_iterator, out_edge_iterator> out_edge_iter = boost::out_edges(node, vertex_graph);
-      for(; out_edge_iter.first != out_edge_iter.second; ++out_edge_iter.first){
-        int target = boost::target(*out_edge_iter.first, vertex_graph);
-        if(target == node){
-          target = boost::source(*out_edge_iter.first, vertex_graph);
-        }
-        if(!used[target] && this->m_vertices[target]->m_position.sqrDistance(vertex) <= squared_radius){
-          queue.push(target);
-        }
-      }
-    }
     double sum = 0;
     double min = std::numeric_limits<float>::max();
     double max = std::numeric_limits<float>::min();
-    for(size_t j=0; j<current_nodes.size(); j++){
-      int node = current_nodes[j];
-      double height = this->m_vertices[node]->m_position.z;
+
+    typename vector<VertexPtr>::iterator it;
+
+	// reset used falg
+	for(it = neighborhood.begin(); it != neighborhood.end(); it++)
+	{
+      double height = (*it)->m_position.z;
+      int index = (*it)->m_index;
       min = std::min(height, min);
       max = std::max(height, max);
-      sum += avarage_angles[node];
-      used[node] = false;
+      sum += avarage_angles[index];
+      used[index] = false;
     }
-    local_roughness[i] = sum / current_nodes.size();
+    local_roughness[i] = sum / neighborhood.size();
     local_height_difference[i] = max - min;
     
   }

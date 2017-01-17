@@ -69,13 +69,13 @@ namespace mesh_navigation{
       
       switch(graph_base_type_){
         case VertexGraph:
-		  mesh_ptr->vertexGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
+		      mesh_ptr->vertexGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
           if(!mesh_ptr->vertexGraphDijkstra(start_vertex, goal_vertex, path, path_normals)){
             return false;  
           }
           break;
         case FaceGraph:
-   		  mesh_ptr->faceGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
+   		    mesh_ptr->faceGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
           if(!mesh_ptr->faceGraphDijkstra(start_vertex, goal_vertex, path, path_normals)){
             return false;  
           }
@@ -274,17 +274,17 @@ namespace mesh_navigation{
    
     //mesh_ptr->prepareGraphForNavigation();
     lvr::GraphHalfEdgeMesh<VertexType, NormalType>::InflationLevel inflation_level;
-	inflation_level.LETHAL = 256.0;
-	inflation_level.INSCRIBED = 255.0;
-	inflation_level.INSCRIBED_RADIUS =  0.10;//0.30;
-	inflation_level.INSCRIBED_RADIUS_SQUARED = pow(inflation_level.INSCRIBED_RADIUS, 2);
-	inflation_level.MAX_INFLATION_RADIUS = 0.20;// 0.40;
-	inflation_level.MAX_INFLATION_RADIUS_SQUARED = pow(inflation_level.MAX_INFLATION_RADIUS, 2);
-	inflation_level.ROUGHNESS_THRESHOLD = 0.75 * M_PI;
-	inflation_level.HEIGHT_DIFF_THRESHOLD = 0.1;
+    inflation_level.LETHAL = 256.0;
+    inflation_level.INSCRIBED = 255.0;
+    inflation_level.INSCRIBED_RADIUS =  0.10;//0.30;
+    inflation_level.INSCRIBED_RADIUS_SQUARED = pow(inflation_level.INSCRIBED_RADIUS, 2);
+    inflation_level.MAX_INFLATION_RADIUS = 0.20;// 0.40;
+    inflation_level.MAX_INFLATION_RADIUS_SQUARED = pow(inflation_level.MAX_INFLATION_RADIUS, 2);
+    inflation_level.ROUGHNESS_THRESHOLD = 0.75 * M_PI;
+    inflation_level.HEIGHT_DIFF_THRESHOLD = 0.1;
     mesh_ptr->borderCostInflationVertexGraph(inflation_level);
     //mesh_ptr->vertexGraphCalculateAverageVertexAngles();
-	mesh_ptr->vertexGraphCalculateLocalRoughnessAndHeightDifference(0.06);
+    mesh_ptr->vertexGraphCalculateLocalRoughnessAndHeightDifference(0.20);
 
     ROS_INFO("Finalize mesh and convert it to message...");
     mesh_ptr->finalize();
@@ -295,7 +295,7 @@ namespace mesh_navigation{
 
     lvr_ros::fromMeshBufferToTriangleMesh(mesh_ptr->meshBuffer(), planning_mesh_msg.mesh);
     
-	ROS_INFO("Add navigation colors...");
+    ROS_INFO("Add navigation colors...");
     mesh_ptr->finalize();
     
     
@@ -307,7 +307,7 @@ namespace mesh_navigation{
     mesh_ptr->faceGraphCombineVertexCosts(riskiness_factor, roughness_factor, height_diff_factor);
     
     std::vector<float> face_costs, vertex_costs;
-	mesh_ptr->getVertexCostsFaceGraph(face_costs);
+    mesh_ptr->getVertexCostsFaceGraph(face_costs);
     mesh_ptr->getVetrexCostsVertexGraph(vertex_costs);
     
     
