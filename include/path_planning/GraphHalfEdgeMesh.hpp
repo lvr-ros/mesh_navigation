@@ -294,10 +294,36 @@ public:
   void getDistancesFaceGraph(std::vector<float>& costs);
   
   void getDistancesVertexGraph(std::vector<float>& costs);
-  
-  void vertexGraphCombineVertexCosts(float riskiness_factor, float roughness_factor, float height_diff_factor);
 
-  void faceGraphCombineVertexCosts(float riskiness_factor, float roughness_factor, float height_diff_factor);
+  void vertexGraphGetMaxRiskinessRoughnessHeightDiffValues(
+    float& riskiness_max,
+    float& roughness_max,
+    float& height_diff_max
+  );
+  
+  void vertexGraphCombineVertexCosts(
+  	float riskiness_factor,
+    float riskiness_norm,
+    float roughness_factor,
+    float roughness_norm,
+    float height_diff_factor,
+    float height_diff_norm
+  );
+
+  void faceGraphGetMaxRiskinessRoughnessHeightDiffValues(
+    float& riskiness_max,
+    float& roughness_max,
+    float& height_diff_max
+  );
+
+  void faceGraphCombineVertexCosts(
+  	float riskiness_factor,
+    float riskiness_norm,
+    float roughness_factor,
+    float roughness_norm,
+    float height_diff_factor,
+    float height_diff_norm
+  );
 
 private:
 

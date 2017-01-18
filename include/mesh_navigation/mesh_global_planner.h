@@ -8,6 +8,8 @@
 #include <lvr_ros/lvr_ros_conversions.h>
 #include <mesh_navigation/MeshGlobalPlannerConfig.h>
 #include <tf/transform_listener.h>
+#include <dynamic_reconfigure/server.h>
+
 
 typedef lvr::ColorVertex<float, int> VertexType;
 typedef lvr::Normal<float> NormalType;
@@ -58,12 +60,23 @@ namespace mesh_navigation
       void initialize(const std::string& name, const boost::shared_ptr<tf::TransformListener>& tf_listener, const std::string& global_frame);
 
     protected:
+
+      void reconfigureCallback(mesh_navigation::MeshGlobalPlannerConfig& config, uint32_t level);
       
       void msgPointToVertex(const geometry_msgs::Point& point, VertexType& vertex);
 
       void meshCallback(const mesh_msgs::TriangleMeshStamped::ConstPtr& mesh_msg);
       
-      
+      void computeLocalRoughnessAndHeightDifference();
+
+      void inflateObstacles();
+
+      void combineCosts();
+
+      void computeColors(mesh_msgs::TriangleMesh& mesh_msgs);
+
+      void prepareNavigationMesh();
+
       /**
        * @brief calculates the pose at the current vertex 
        * @param current The current vertex in the path 
@@ -78,6 +91,21 @@ namespace mesh_navigation
         const NormalType& normal,
         geometry_msgs::Pose& pose
       );
+
+      boost::shared_ptr<dynamic_reconfigure::Server<mesh_navigation::MeshGlobalPlannerConfig> > reconfigure_server_ptr;
+      dynamic_reconfigure::Server<mesh_navigation::MeshGlobalPlannerConfig>::CallbackType callback_type;
+
+      mesh_msgs::TriangleMeshStamped global_mesh;
+
+      mesh_navigation::MeshGlobalPlannerConfig current_config;
+      bool firstConfigLoad;
+
+      lvr::GraphHalfEdgeMesh<VertexType, NormalType>::InflationLevel inflation_level;
+      double local_radius;
+
+      float riskiness_factor;
+      float roughness_factor;
+      float height_diff_factor;
 
       lvr::GraphHalfEdgeMesh<VertexType, NormalType>::Ptr mesh_ptr;
       ros::Subscriber sub;

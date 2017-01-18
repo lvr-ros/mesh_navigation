@@ -744,22 +744,23 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::borderCostInflationVertexGraph(const I
 // output -> VertexDistanceMap ( squared distance to contour )
 template<typename VertexT, typename NormalT>
 void GraphHalfEdgeMesh<VertexT, NormalT>::borderCostInflationVertexGraph(const InflationLevel& inflation_level, std::vector<int>& contour){
-  VertexDistanceMap vertex_distance_map = boost::get(boost::vertex_distance, vertex_graph);
+  VertexDistanceMap vertex_distance_map = boost::get(boost::vertex_distance_t(), vertex_graph);
   
   std::vector<int>::iterator con_iter;
 
   for(con_iter = contour.begin(); con_iter != contour.end(); ++con_iter){
-    typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr center_vertex = this->m_vertices[(*con_iter)];
-    int center_index = center_vertex->m_index;
+	int center_index = *con_iter;
+    VertexPtr center_vertex = this->m_vertices[center_index];
+    assert(center_vertex->m_index == *con_iter);
     vertex_distance_map[center_index] = 0;
-    std::queue<typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr> vertex_queue;
+    std::queue<VertexPtr> vertex_queue;
     vertex_queue.push(center_vertex);
     while(!vertex_queue.empty()){
-      typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr vertex = vertex_queue.front();
+      VertexPtr vertex = vertex_queue.front();
       vertex_queue.pop();
       typename HalfEdgeMesh<VertexT, NormalT>::EdgeVector::iterator tmp_edge_iter;
       for(tmp_edge_iter = vertex->out.begin(); tmp_edge_iter != vertex->out.end(); ++tmp_edge_iter){
-        typename HalfEdgeMesh<VertexT, NormalT>::VertexPtr tmp_vertex = (*tmp_edge_iter)->end();
+        VertexPtr tmp_vertex = (*tmp_edge_iter)->end();
         CostType sqr_dist = center_vertex->m_position.sqrDistance(tmp_vertex->m_position);
         if(sqr_dist > vertex_distance_map[vertex->m_index] 
           && sqr_dist  < vertex_distance_map[tmp_vertex->m_index]){
@@ -1178,13 +1179,23 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCalculateEdgeWeights(float ro
 }
 
 template<typename VertexT, typename NormalT>
-void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCombineVertexCosts(float riskiness_factor, float roughness_factor, float height_diff_factor)
+void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCombineVertexCosts(
+	float riskiness_factor,
+    float riskiness_norm,
+    float roughness_factor,
+    float roughness_norm,
+    float height_diff_factor,
+    float height_diff_norm)
 {
   VertexCostMap face_graph_vertex_costmap = boost::get(vertex_costs_t(), face_graph);
   VertexRiskinessMap face_graph_vertex_riskiness = boost::get(vertex_riskiness_t(), face_graph);
   VertexRoughnessMap face_graph_vertex_roughness = boost::get(vertex_roughness_t(), face_graph);
   VertexHeightDifferenceMap face_graph_height_difference = boost::get(vertex_height_difference_t(), face_graph);
   
+  riskiness_factor /= riskiness_norm;
+  roughness_factor /= roughness_norm;
+  height_diff_factor /= height_diff_norm;
+
   for(size_t i=0; i<face_cnt; i++){
     face_graph_vertex_costmap[i] =
         riskiness_factor * face_graph_vertex_riskiness[i]
@@ -1194,12 +1205,57 @@ void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphCombineVertexCosts(float risk
 }
 
 template<typename VertexT, typename NormalT>
-void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCombineVertexCosts(float riskiness_factor, float roughness_factor, float height_diff_factor)
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphGetMaxRiskinessRoughnessHeightDiffValues(
+    float& riskiness_max,
+    float& roughness_max,
+    float& hght_diff_max)
+{
+  VertexRiskinessMap vertex_graph_vertex_riskiness = boost::get(vertex_riskiness_t(), vertex_graph);
+  VertexRoughnessMap vertex_graph_vertex_roughness = boost::get(vertex_roughness_t(), vertex_graph);
+  VertexHeightDifferenceMap vertex_graph_height_difference = boost::get(vertex_height_difference_t(), vertex_graph);
+  
+  for(size_t i=0; i<vertex_cnt; i++){
+      riskiness_max = std::max(vertex_graph_vertex_riskiness[i], riskiness_max);
+      roughness_max = std::max(vertex_graph_vertex_roughness[i], roughness_max);
+      hght_diff_max = std::max(vertex_graph_height_difference[i], hght_diff_max);
+  }
+}
+
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::faceGraphGetMaxRiskinessRoughnessHeightDiffValues(
+    float& riskiness_max,
+    float& roughness_max,
+    float& hght_diff_max)
+{
+  VertexRiskinessMap face_graph_vertex_riskiness = boost::get(vertex_riskiness_t(), face_graph);
+  VertexRoughnessMap face_graph_vertex_roughness = boost::get(vertex_roughness_t(), face_graph);
+  VertexHeightDifferenceMap face_graph_height_difference = boost::get(vertex_height_difference_t(), face_graph);
+  
+  for(size_t i=0; i<face_cnt; i++){
+      riskiness_max = std::max(face_graph_vertex_riskiness[i], riskiness_max);
+      roughness_max = std::max(face_graph_vertex_roughness[i], roughness_max);
+      hght_diff_max = std::max(face_graph_height_difference[i], hght_diff_max);
+  }
+}
+
+
+template<typename VertexT, typename NormalT>
+void GraphHalfEdgeMesh<VertexT, NormalT>::vertexGraphCombineVertexCosts(
+    float riskiness_factor,
+    float riskiness_norm,
+    float roughness_factor,
+    float roughness_norm,
+    float height_diff_factor,
+    float height_diff_norm)
 {
   VertexCostMap vertex_graph_vertex_costmap = boost::get(vertex_costs_t(), vertex_graph);
   VertexRiskinessMap vertex_graph_vertex_riskiness = boost::get(vertex_riskiness_t(), vertex_graph);
   VertexRoughnessMap vertex_graph_vertex_roughness = boost::get(vertex_roughness_t(), vertex_graph);
   VertexHeightDifferenceMap vertex_graph_height_difference = boost::get(vertex_height_difference_t(), vertex_graph);
+
+  riskiness_factor /= riskiness_norm;
+  roughness_factor /= roughness_norm;
+  height_diff_factor /= height_diff_norm;
 
   std::cout <<  " vertex_cnt: " << vertex_cnt << std::endl;
   for(size_t i=0; i<vertex_cnt; i++){

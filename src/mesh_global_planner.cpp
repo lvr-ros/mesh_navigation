@@ -69,13 +69,13 @@ namespace mesh_navigation{
       
       switch(graph_base_type_){
         case VertexGraph:
-		      mesh_ptr->vertexGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
+          mesh_ptr->vertexGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
           if(!mesh_ptr->vertexGraphDijkstra(start_vertex, goal_vertex, path, path_normals)){
             return false;  
           }
           break;
         case FaceGraph:
-   		    mesh_ptr->faceGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
+          mesh_ptr->faceGraphCalculateEdgeWeights(roughness_factor, height_diff_factor);
           if(!mesh_ptr->faceGraphDijkstra(start_vertex, goal_vertex, path, path_normals)){
             return false;  
           }
@@ -187,7 +187,7 @@ namespace mesh_navigation{
     ros::NodeHandle nh_g;
     sub = nh_g.subscribe("mesh_in", 1, &MeshGlobalPlanner::meshCallback, this);
     navigation_mesh_pub = nh_g.advertise<mesh_msgs::TriangleMeshStamped>("navigation_mesh", 1);
-	planning_result_pub = nh_g.advertise<mesh_msgs::TriangleMeshStamped>("planning_result_mesh", 1);
+    planning_result_pub = nh_g.advertise<mesh_msgs::TriangleMeshStamped>("planning_result_mesh", 1);
 
     ROS_INFO("Mesh Global Planner initialized.");
 
@@ -217,6 +217,216 @@ namespace mesh_navigation{
     
     this->global_frame = global_frame;
     this->tf_listener_ptr = tf_listener_ptr;
+
+    firstConfigLoad = true;
+
+    reconfigure_server_ptr = boost::shared_ptr<dynamic_reconfigure::Server<mesh_navigation::MeshGlobalPlannerConfig> > (
+       new dynamic_reconfigure::Server<mesh_navigation::MeshGlobalPlannerConfig>(nh));
+
+    callback_type = boost::bind(&MeshGlobalPlanner::reconfigureCallback, this, _1, _2);
+    reconfigure_server_ptr->setCallback(callback_type);
+
+  }
+
+  void MeshGlobalPlanner::reconfigureCallback(mesh_navigation::MeshGlobalPlannerConfig& config, uint32_t level){
+
+    ROS_INFO_STREAM("reconfigureCallback...");
+
+    if(firstConfigLoad){
+      current_config = config;
+      firstConfigLoad = false;
+    }
+
+    inflation_level.LETHAL = 256.0;
+    inflation_level.INSCRIBED = 255.0;
+    inflation_level.INSCRIBED_RADIUS = config.inscribed_radius;
+    inflation_level.INSCRIBED_RADIUS_SQUARED = pow(inflation_level.INSCRIBED_RADIUS, 2);
+    inflation_level.MAX_INFLATION_RADIUS = config.max_inflation_radius;
+    inflation_level.MAX_INFLATION_RADIUS_SQUARED = pow(inflation_level.MAX_INFLATION_RADIUS, 2);
+    inflation_level.ROUGHNESS_THRESHOLD = config.roughness_threshold;
+    inflation_level.HEIGHT_DIFF_THRESHOLD = config.height_diff_threshold;
+    local_radius = config.local_radius;
+    riskiness_factor = config.riskiness_factor;
+    roughness_factor = config.roughness_factor;
+    height_diff_factor = config.height_diff_factor;
+
+    ROS_INFO_STREAM("reconfigure request: " );
+    ROS_INFO_STREAM("inscribed_radius: " << config.inscribed_radius);
+    ROS_INFO_STREAM("max_inflation_radius: " << config.max_inflation_radius);
+    ROS_INFO_STREAM("roughness_threshold: " << config.roughness_threshold);
+    ROS_INFO_STREAM("height_diff_threshold: " << config.height_diff_threshold);
+    ROS_INFO_STREAM("local_radius: " << config.local_radius);
+    ROS_INFO_STREAM("riskiness_factor: " << config.riskiness_factor);
+    ROS_INFO_STREAM("roughness_factor: " << config.roughness_factor);
+    ROS_INFO_STREAM("height_diff_factor: " << config.height_diff_factor);
+
+    if(! firstConfigLoad && mesh_ptr){
+      ROS_INFO_STREAM("compute new navigation mesh");
+
+      if(current_config.local_radius != config.local_radius){
+        computeLocalRoughnessAndHeightDifference();
+        inflateObstacles();
+        combineCosts();
+
+        ROS_INFO("finalize mesh and convert it to message...");
+        mesh_ptr->finalize();
+
+        mesh_msgs::TriangleMeshStamped planning_mesh_msg;
+        planning_mesh_msg.header.stamp = global_mesh.header.stamp;
+        planning_mesh_msg.header.frame_id = global_mesh.header.frame_id;
+
+        lvr_ros::fromMeshBufferToTriangleMesh(mesh_ptr->meshBuffer(), planning_mesh_msg.mesh);
+        computeColors(planning_mesh_msg.mesh);
+
+        ROS_INFO("publish navigation mesh.");
+        navigation_mesh_pub.publish(planning_mesh_msg);
+
+      } else if(current_config.inscribed_radius != config.inscribed_radius 
+         || current_config.max_inflation_radius != config.max_inflation_radius
+         || current_config.roughness_threshold != config.roughness_threshold
+         || current_config.height_diff_threshold != config.height_diff_threshold){
+
+        inflateObstacles();
+        combineCosts();
+
+        ROS_INFO("finalize mesh and convert it to message...");
+        mesh_ptr->finalize();
+
+        mesh_msgs::TriangleMeshStamped planning_mesh_msg;
+        planning_mesh_msg.header.stamp = global_mesh.header.stamp;
+        planning_mesh_msg.header.frame_id = global_mesh.header.frame_id;
+
+        lvr_ros::fromMeshBufferToTriangleMesh(mesh_ptr->meshBuffer(), planning_mesh_msg.mesh);
+        computeColors(planning_mesh_msg.mesh);
+
+        ROS_INFO("publish navigation mesh.");
+        navigation_mesh_pub.publish(planning_mesh_msg);
+
+      } else if(current_config.riskiness_factor != config.riskiness_factor 
+         || current_config.roughness_factor != config.roughness_factor
+         || current_config.height_diff_factor != config.height_diff_factor){
+
+        combineCosts();
+
+        ROS_INFO("finalize mesh and convert it to message...");
+        mesh_ptr->finalize();
+
+        mesh_msgs::TriangleMeshStamped planning_mesh_msg;
+        planning_mesh_msg.header.stamp = global_mesh.header.stamp;
+        planning_mesh_msg.header.frame_id = global_mesh.header.frame_id;
+
+        lvr_ros::fromMeshBufferToTriangleMesh(mesh_ptr->meshBuffer(), planning_mesh_msg.mesh);
+        computeColors(planning_mesh_msg.mesh);
+
+        ROS_INFO("publish navigation mesh.");
+        navigation_mesh_pub.publish(planning_mesh_msg);
+
+      }
+
+    }
+
+    current_config = config;
+
+
+  }
+
+  void MeshGlobalPlanner::computeLocalRoughnessAndHeightDifference(){
+    ROS_INFO("compute vertex graph local roughness and height difference...");
+    mesh_ptr->vertexGraphCalculateLocalRoughnessAndHeightDifference(local_radius);
+  }
+
+  void MeshGlobalPlanner::inflateObstacles(){
+    ROS_INFO("obstacle inflation...");
+    mesh_ptr->borderCostInflationVertexGraph(inflation_level);
+  }
+
+  void MeshGlobalPlanner::combineCosts(){
+
+    float riskiness_norm;
+    float roughness_norm;
+    float height_diff_norm;
+
+    mesh_ptr->vertexGraphGetMaxRiskinessRoughnessHeightDiffValues(riskiness_norm, roughness_norm, height_diff_norm);
+    ROS_INFO_STREAM("riskiness norm: " << riskiness_norm);
+    ROS_INFO_STREAM("roughness norm: " << roughness_norm);
+    ROS_INFO_STREAM("hght_diff_norm: " << height_diff_norm);
+    
+    ROS_INFO("combine costs of the riskiness, roughness and height differences layers...");      
+    mesh_ptr->vertexGraphCombineVertexCosts(
+      riskiness_factor,
+      riskiness_norm,
+      roughness_factor,
+      roughness_norm,
+      height_diff_factor,
+      height_diff_norm
+    );
+
+    mesh_ptr->faceGraphCombineVertexCosts(
+      riskiness_factor,
+      riskiness_norm,
+      roughness_factor,
+      roughness_norm,
+      height_diff_factor,
+      height_diff_norm
+    );
+    
+  }
+
+  void MeshGlobalPlanner::computeColors(mesh_msgs::TriangleMesh& mesh_msgs){
+    ROS_INFO("compute mesh cost colors...");
+    std::vector<float> face_costs, vertex_costs;
+    mesh_ptr->getVertexCostsFaceGraph(face_costs);
+    mesh_ptr->getVetrexCostsVertexGraph(vertex_costs);
+    
+    lvr_ros::intensityToTriangleRainbowColors(face_costs, mesh_msgs, 0, 1);
+    lvr_ros::intensityToVertexRainbowColors(vertex_costs, mesh_msgs, 0, 1);
+  }
+
+  void MeshGlobalPlanner::prepareNavigationMesh(){
+
+    /*
+    switch(graph_base_type_){
+      case VertexGraph:
+    ROS_INFO("vertex graph edge region growing \n max dist: %f \n max normal angle: %f",
+      edge_region_growing_max_dist_,
+          edge_region_growing_max_normal_angle_
+    );
+        mesh_ptr->vertexGraphEdgeRegionGrowing(
+          edge_region_growing_max_dist_,
+          edge_region_growing_max_normal_angle_
+        );
+        break;
+      case FaceGraph:
+        ROS_INFO("face graph edge region growing \n max dist: %f \n max normal angle: %f",
+      edge_region_growing_max_dist_,
+          edge_region_growing_max_normal_angle_
+    );
+        mesh_ptr->faceGraphEdgeRegionGrowing(
+          edge_region_growing_max_dist_,
+          edge_region_growing_max_normal_angle_
+        );
+        break;
+    }
+    */
+    
+    //mesh_ptr->vertexGraphCalculateAverageVertexAngles();
+
+    computeLocalRoughnessAndHeightDifference();
+    inflateObstacles();
+    combineCosts();
+
+    ROS_INFO("finalize mesh and convert it to message...");
+    mesh_ptr->finalize();
+
+    mesh_msgs::TriangleMeshStamped planning_mesh_msg;
+    planning_mesh_msg.header.stamp = global_mesh.header.stamp;
+    planning_mesh_msg.header.frame_id = global_mesh.header.frame_id;
+
+    lvr_ros::fromMeshBufferToTriangleMesh(mesh_ptr->meshBuffer(), planning_mesh_msg.mesh);
+    computeColors(planning_mesh_msg.mesh);
+
+    ROS_INFO("publish navigation mesh.");
+    navigation_mesh_pub.publish(planning_mesh_msg);
   }
 
   void MeshGlobalPlanner::meshCallback(const mesh_msgs::TriangleMeshStamped::ConstPtr& mesh_msg){
@@ -224,7 +434,6 @@ namespace mesh_navigation{
     mesh_msg->header.frame_id.c_str(), mesh_msg->mesh.vertices.size(), mesh_msg->mesh.triangles.size(), mesh_msg->mesh.vertex_normals.size());
     
     // transform mesh to global frame
-    mesh_msgs::TriangleMeshStamped global_mesh;
     bool tf_success = mesh_msgs_transform::transformTriangleMesh(
       global_frame,           // target frame
       mesh_msg->header.stamp, // target time
@@ -244,79 +453,8 @@ namespace mesh_navigation{
     lvr_ros::fromTriangleMeshToMeshBuffer(global_mesh.mesh, *mesh_buffer_ptr);
     mesh_ptr = lvr::GraphHalfEdgeMesh<VertexType, NormalType>::Ptr(
       new lvr::GraphHalfEdgeMesh<VertexType, NormalType>(mesh_buffer_ptr));
-    
-    /*
-    switch(graph_base_type_){
-      case VertexGraph:
-		ROS_INFO("vertex graph edge region growing \n max dist: %f \n max normal angle: %f",
-		  edge_region_growing_max_dist_,
-          edge_region_growing_max_normal_angle_
-		);
-        mesh_ptr->vertexGraphEdgeRegionGrowing(
-          edge_region_growing_max_dist_,
-          edge_region_growing_max_normal_angle_
-        );
-        break;
-      case FaceGraph:
-        ROS_INFO("face graph edge region growing \n max dist: %f \n max normal angle: %f",
-		  edge_region_growing_max_dist_,
-          edge_region_growing_max_normal_angle_
-		);
-        mesh_ptr->faceGraphEdgeRegionGrowing(
-          edge_region_growing_max_dist_,
-          edge_region_growing_max_normal_angle_
-        );
-        break;
-    }
-    */
-    
-    ROS_INFO("Prepare mesh for navigation...");
-   
-    lvr::GraphHalfEdgeMesh<VertexType, NormalType>::InflationLevel inflation_level;
-    inflation_level.LETHAL = 256.0;
-    inflation_level.INSCRIBED = 255.0;
-    inflation_level.INSCRIBED_RADIUS =  0.10;//0.30;
-    inflation_level.INSCRIBED_RADIUS_SQUARED = pow(inflation_level.INSCRIBED_RADIUS, 2);
-    inflation_level.MAX_INFLATION_RADIUS = 0.20;// 0.40;
-    inflation_level.MAX_INFLATION_RADIUS_SQUARED = pow(inflation_level.MAX_INFLATION_RADIUS, 2);
-    inflation_level.ROUGHNESS_THRESHOLD = 0.75 * M_PI;
-    inflation_level.HEIGHT_DIFF_THRESHOLD = 0.1;
-    mesh_ptr->borderCostInflationVertexGraph(inflation_level);
-    //mesh_ptr->vertexGraphCalculateAverageVertexAngles();
-    mesh_ptr->vertexGraphCalculateLocalRoughnessAndHeightDifference(0.20);
 
-    ROS_INFO("Finalize mesh and convert it to message...");
-    mesh_ptr->finalize();
-    
-    mesh_msgs::TriangleMeshStamped planning_mesh_msg;
-    planning_mesh_msg.header.stamp = global_mesh.header.stamp;
-    planning_mesh_msg.header.frame_id = global_mesh.header.frame_id;
-
-    lvr_ros::fromMeshBufferToTriangleMesh(mesh_ptr->meshBuffer(), planning_mesh_msg.mesh);
-    
-    ROS_INFO("Add navigation colors...");
-    mesh_ptr->finalize();
-    
-    
-    float riskiness_factor = 1;
-    float roughness_factor = 450;
-    float height_diff_factor = 0;//200;
-    
-    mesh_ptr->vertexGraphCombineVertexCosts(riskiness_factor, roughness_factor, height_diff_factor);
-    mesh_ptr->faceGraphCombineVertexCosts(riskiness_factor, roughness_factor, height_diff_factor);
-    
-    std::vector<float> face_costs, vertex_costs;
-    mesh_ptr->getVertexCostsFaceGraph(face_costs);
-    mesh_ptr->getVetrexCostsVertexGraph(vertex_costs);
-    
-    
-    
-    lvr_ros::intensityToTriangleRainbowColors(face_costs, planning_mesh_msg.mesh, 0, 256);
-    lvr_ros::intensityToVertexRainbowColors(vertex_costs, planning_mesh_msg.mesh, 0, 256);
-
-	ROS_INFO("Publish navigation mesh!");
-    navigation_mesh_pub.publish(planning_mesh_msg);
-  
+    prepareNavigationMesh();
   }
 
 } /* namespace mesh_navigation */
