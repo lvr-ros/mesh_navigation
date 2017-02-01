@@ -5,7 +5,7 @@
 #include <robot_navigation/base_global_planner.h>
 #include <mesh_msgs/TriangleMeshStamped.h>
 #include <ros/ros.h>
-#include <lvr_ros/lvr_ros_conversions.h>
+#include <lvr_ros/conversions.h>
 #include <mesh_navigation/MeshGlobalPlannerConfig.h>
 #include <tf/transform_listener.h>
 #include <dynamic_reconfigure/server.h>
